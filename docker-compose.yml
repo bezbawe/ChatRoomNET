@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: chatroomnet-postgres
+    environment:
+      POSTGRES_DB: chatroomnet
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - chatroomnet-pgdata:/var/lib/postgresql/data
+
+volumes:
+  chatroomnet-pgdata:
