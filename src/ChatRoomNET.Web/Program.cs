@@ -44,6 +44,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<IRoomService, RoomService>();
 
 builder.Services.AddCors(options =>
     options.AddPolicy(blazorCorsPolicy, policy => policy
@@ -66,6 +67,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapAuthEndpoints();
+app.MapRoomEndpoints();
 
 app.MapGet("/api/me", (ClaimsPrincipal user) => Results.Ok(new
     {
