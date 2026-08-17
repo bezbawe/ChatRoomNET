@@ -30,6 +30,13 @@ public static class RoomEndpoints
             var members = await rooms.GetMembersAsync(id, GetUserId(user));
             return members is null ? Results.NotFound() : Results.Ok(members);
         });
+
+        group.MapGet("/{id:guid}/messages", async (
+            Guid id, long? before, int? take, ClaimsPrincipal user, IMessageService messages) =>
+        {
+            var history = await messages.GetHistoryAsync(id, GetUserId(user), before, take ?? MessageService.DefaultTake);
+            return history is null ? Results.NotFound() : Results.Ok(history);
+        });
     }
 
     private static string GetUserId(ClaimsPrincipal user) =>

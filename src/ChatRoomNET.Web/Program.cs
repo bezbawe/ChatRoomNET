@@ -45,6 +45,7 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
+builder.Services.AddScoped<IMessageService, MessageService>();
 
 builder.Services.AddCors(options =>
     options.AddPolicy(blazorCorsPolicy, policy => policy
