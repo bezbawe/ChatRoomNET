@@ -3,6 +3,7 @@ using System.Text;
 using ChatRoomNET.Web.Data;
 using ChatRoomNET.Web.Domain;
 using ChatRoomNET.Web.Endpoints;
+using ChatRoomNET.Web.Hubs;
 using ChatRoomNET.Web.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -40,12 +41,32 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(jwtSection["Key"]!))
         };
+
+        // WebSocket не умеет слать заголовок Authorization — SignalR-клиент кладёт токен
+        // в query string (?access_token=...). Забираем его только для хабов.
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(accessToken) &&
+                    context.HttpContext.Request.Path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     });
 builder.Services.AddAuthorization();
 
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
 builder.Services.AddScoped<IMessageService, MessageService>();
+builder.Services.AddSingleton<IPresenceTracker, PresenceTracker>();
+
+builder.Services.AddSignalR();
 
 builder.Services.AddCors(options =>
     options.AddPolicy(blazorCorsPolicy, policy => policy
@@ -69,6 +90,8 @@ app.UseAuthorization();
 
 app.MapAuthEndpoints();
 app.MapRoomEndpoints();
+
+app.MapHub<ChatHub>("/hubs/chat");
 
 app.MapGet("/api/me", (ClaimsPrincipal user) => Results.Ok(new
     {

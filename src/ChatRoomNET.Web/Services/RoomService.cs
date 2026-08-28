@@ -11,6 +11,7 @@ public interface IRoomService
     Task<IReadOnlyList<RoomResponse>> GetMyRoomsAsync(string userId);
     Task<RoomResponse?> JoinAsync(string userId, JoinRoomRequest request);
     Task<IReadOnlyList<RoomMemberResponse>?> GetMembersAsync(Guid roomId, string userId);
+    Task<bool> IsMemberAsync(Guid roomId, string userId);
 }
 
 public class RoomService(ChatDbContext db) : IRoomService
@@ -87,6 +88,9 @@ public class RoomService(ChatDbContext db) : IRoomService
             .Select(m => new RoomMemberResponse(m.UserId, m.User.UserName!, m.JoinedAt))
             .ToListAsync();
     }
+
+    public Task<bool> IsMemberAsync(Guid roomId, string userId) =>
+        db.RoomMembers.AnyAsync(m => m.RoomId == roomId && m.UserId == userId);
 
     private static string GenerateInviteCode() =>
         Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
