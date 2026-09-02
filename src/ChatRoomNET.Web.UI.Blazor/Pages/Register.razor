@@ -1,0 +1,77 @@
+@page "/register"
+@using System.ComponentModel.DataAnnotations
+@inject ChatApiClient Api
+@inject JwtAuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
+
+<PageTitle>Регистрация</PageTitle>
+
+<h1>Регистрация</h1>
+
+<EditForm Model="model" OnValidSubmit="SubmitAsync" style="max-width: 24rem;">
+    <DataAnnotationsValidator/>
+
+    <div class="mb-3">
+        <label class="form-label">Имя пользователя</label>
+        <InputText class="form-control" @bind-Value="model.UserName"/>
+        <ValidationMessage For="() => model.UserName"/>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Email</label>
+        <InputText class="form-control" @bind-Value="model.Email"/>
+        <ValidationMessage For="() => model.Email"/>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Пароль</label>
+        <InputText type="password" class="form-control" @bind-Value="model.Password"/>
+        <div class="form-text">Минимум 6 символов: заглавная, строчная, цифра и спецсимвол.</div>
+        <ValidationMessage For="() => model.Password"/>
+    </div>
+
+    @if (error is not null)
+    {
+        <div class="alert alert-danger">@error</div>
+    }
+
+    <button type="submit" class="btn btn-primary" disabled="@busy">Зарегистрироваться</button>
+    <a class="btn btn-link" href="login">Уже есть аккаунт</a>
+</EditForm>
+
+@code {
+    private readonly RegisterModel model = new();
+    private string? error;
+    private bool busy;
+
+    private async Task SubmitAsync()
+    {
+        busy = true;
+        error = null;
+
+        var result = await Api.RegisterAsync(new RegisterRequest(model.UserName, model.Email, model.Password));
+        if (result.Response is null)
+        {
+            error = result.Error;
+            busy = false;
+            return;
+        }
+
+        await AuthState.MarkUserAsAuthenticatedAsync(result.Response.Token);
+        Navigation.NavigateTo("");
+    }
+
+    private sealed class RegisterModel
+    {
+        [Required(ErrorMessage = "Укажите имя пользователя")]
+        public string UserName { get; set; } = "";
+
+        [Required(ErrorMessage = "Укажите email")]
+        [EmailAddress(ErrorMessage = "Некорректный email")]
+        public string Email { get; set; } = "";
+
+        [Required(ErrorMessage = "Укажите пароль")]
+        [MinLength(6, ErrorMessage = "Минимум 6 символов")]
+        public string Password { get; set; } = "";
+    }
+}

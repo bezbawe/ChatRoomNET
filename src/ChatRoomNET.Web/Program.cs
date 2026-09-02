@@ -15,6 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 const string blazorCorsPolicy = "BlazorClient";
 
 builder.Services.AddOpenApi();
+builder.Services.AddProblemDetails();
 
 builder.Services.AddDbContext<ChatDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
@@ -76,6 +77,9 @@ builder.Services.AddCors(options =>
         .AllowCredentials()));
 
 var app = builder.Build();
+
+// Необработанные исключения превращаем в RFC 7807 ProblemDetails, а не в стандартную HTML-страницу.
+app.UseExceptionHandler();
 
 if (app.Environment.IsDevelopment())
 {

@@ -1,0 +1,129 @@
+@page "/"
+@using System.ComponentModel.DataAnnotations
+@attribute [Authorize]
+@inject ChatApiClient Api
+@inject NavigationManager Navigation
+
+<PageTitle>Комнаты</PageTitle>
+
+<h1>Комнаты</h1>
+
+<div class="row">
+    <div class="col-md-7">
+        @if (rooms is null)
+        {
+            <p>Загрузка…</p>
+        }
+        else if (rooms.Count == 0)
+        {
+            <p>У вас пока нет комнат. Создайте новую или вступите по коду.</p>
+        }
+        else
+        {
+            <ul class="list-group">
+                @foreach (var room in rooms)
+                {
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <a href="@($"rooms/{room.Id}")">@room.Name</a>
+                        <span>
+                            @if (room.IsPrivate)
+                            {
+                                <span class="badge bg-secondary">приват</span>
+                                @if (room.InviteCode is not null)
+                                {
+                                    <code class="ms-2">@room.InviteCode</code>
+                                }
+                            }
+                            else
+                            {
+                                <span class="badge bg-success">публичная</span>
+                            }
+                        </span>
+                    </li>
+                }
+            </ul>
+        }
+    </div>
+
+    <div class="col-md-5">
+        <h5>Создать комнату</h5>
+        <EditForm Model="createModel" OnValidSubmit="CreateAsync">
+            <DataAnnotationsValidator/>
+            <div class="mb-2">
+                <InputText class="form-control" placeholder="Название" @bind-Value="createModel.Name"/>
+                <ValidationMessage For="() => createModel.Name"/>
+            </div>
+            <div class="form-check mb-2">
+                <InputCheckbox class="form-check-input" id="isPrivate" @bind-Value="createModel.IsPrivate"/>
+                <label class="form-check-label" for="isPrivate">Приватная</label>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Создать</button>
+        </EditForm>
+
+        <hr/>
+
+        <h5>Вступить по коду</h5>
+        <EditForm Model="joinModel" OnValidSubmit="JoinAsync">
+            <DataAnnotationsValidator/>
+            <div class="input-group">
+                <InputText class="form-control" placeholder="Инвайт-код" @bind-Value="joinModel.InviteCode"/>
+                <button type="submit" class="btn btn-outline-primary">Вступить</button>
+            </div>
+            <ValidationMessage For="() => joinModel.InviteCode"/>
+        </EditForm>
+
+        @if (joinError is not null)
+        {
+            <div class="alert alert-danger mt-2">@joinError</div>
+        }
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<RoomResponse>? rooms;
+    private readonly CreateModel createModel = new();
+    private readonly JoinModel joinModel = new();
+    private string? joinError;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => rooms = await Api.GetRoomsAsync();
+
+    private async Task CreateAsync()
+    {
+        var room = await Api.CreateRoomAsync(new CreateRoomRequest(createModel.Name, createModel.IsPrivate));
+        if (room is not null)
+        {
+            createModel.Name = "";
+            createModel.IsPrivate = false;
+            await LoadAsync();
+        }
+    }
+
+    private async Task JoinAsync()
+    {
+        joinError = null;
+        var room = await Api.JoinRoomAsync(new JoinRoomRequest(null, joinModel.InviteCode));
+        if (room is null)
+        {
+            joinError = "Комната по такому коду не найдена.";
+            return;
+        }
+
+        Navigation.NavigateTo($"rooms/{room.Id}");
+    }
+
+    private sealed class CreateModel
+    {
+        [Required(ErrorMessage = "Укажите название")]
+        public string Name { get; set; } = "";
+
+        public bool IsPrivate { get; set; }
+    }
+
+    private sealed class JoinModel
+    {
+        [Required(ErrorMessage = "Укажите код")]
+        public string InviteCode { get; set; } = "";
+    }
+}

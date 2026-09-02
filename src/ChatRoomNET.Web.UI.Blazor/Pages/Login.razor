@@ -1,0 +1,67 @@
+@page "/login"
+@using System.ComponentModel.DataAnnotations
+@inject ChatApiClient Api
+@inject JwtAuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
+
+<PageTitle>Вход</PageTitle>
+
+<h1>Вход</h1>
+
+<EditForm Model="model" OnValidSubmit="SubmitAsync" style="max-width: 24rem;">
+    <DataAnnotationsValidator/>
+
+    <div class="mb-3">
+        <label class="form-label">Имя пользователя</label>
+        <InputText class="form-control" @bind-Value="model.UserName"/>
+        <ValidationMessage For="() => model.UserName"/>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Пароль</label>
+        <InputText type="password" class="form-control" @bind-Value="model.Password"/>
+        <ValidationMessage For="() => model.Password"/>
+    </div>
+
+    @if (error is not null)
+    {
+        <div class="alert alert-danger">@error</div>
+    }
+
+    <button type="submit" class="btn btn-primary" disabled="@busy">Войти</button>
+    <a class="btn btn-link" href="register">Регистрация</a>
+</EditForm>
+
+@code {
+    private readonly LoginModel model = new();
+    private string? error;
+    private bool busy;
+
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+
+    private async Task SubmitAsync()
+    {
+        busy = true;
+        error = null;
+
+        var result = await Api.LoginAsync(new LoginRequest(model.UserName, model.Password));
+        if (result.Response is null)
+        {
+            error = result.Error;
+            busy = false;
+            return;
+        }
+
+        await AuthState.MarkUserAsAuthenticatedAsync(result.Response.Token);
+        Navigation.NavigateTo(string.IsNullOrEmpty(ReturnUrl) ? "" : ReturnUrl);
+    }
+
+    private sealed class LoginModel
+    {
+        [Required(ErrorMessage = "Укажите имя пользователя")]
+        public string UserName { get; set; } = "";
+
+        [Required(ErrorMessage = "Укажите пароль")]
+        public string Password { get; set; } = "";
+    }
+}

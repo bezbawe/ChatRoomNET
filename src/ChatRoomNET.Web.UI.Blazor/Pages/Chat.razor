@@ -1,0 +1,284 @@
+@page "/rooms/{RoomId:guid}"
+@attribute [Authorize]
+@implements IAsyncDisposable
+@inject ChatApiClient Api
+@inject JwtAuthenticationStateProvider AuthState
+@inject IConfiguration Config
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<PageTitle>Чат</PageTitle>
+
+@if (notMember)
+{
+    <h1>Комната недоступна</h1>
+    <p>Вы не участник этой комнаты. <a href="">К списку комнат</a></p>
+}
+else
+{
+    <div class="row">
+        <div class="col-md-9 d-flex flex-column" style="height: 75vh;">
+            <h1 class="h4">Чат</h1>
+
+            <div @ref="scrollContainer" class="border rounded p-2 flex-grow-1 overflow-auto bg-light">
+                @if (loadingOlder)
+                {
+                    <div class="text-center text-muted small">Загрузка истории…</div>
+                }
+                @foreach (var m in messages)
+                {
+                    <div class="mb-1">
+                        <span class="fw-bold @(m.UserId == myUserId ? "text-primary" : "")">@m.UserName</span>
+                        <span class="text-muted small">@m.CreatedAt.LocalDateTime.ToString("HH:mm")</span>
+                        <div>@m.Text</div>
+                    </div>
+                }
+            </div>
+
+            <div class="text-muted small" style="height: 1.5rem;">@TypingText</div>
+
+            <form @onsubmit="SendAsync" class="input-group">
+                <input class="form-control" placeholder="Сообщение…" value="@draft"
+                       @oninput="OnInput" autocomplete="off"/>
+                <button type="submit" class="btn btn-primary" disabled="@(string.IsNullOrWhiteSpace(draft))">
+                    Отправить
+                </button>
+            </form>
+        </div>
+
+        <div class="col-md-3">
+            <h2 class="h6">Участники</h2>
+            <ul class="list-unstyled">
+                @foreach (var member in members)
+                {
+                    <li>
+                        <span class="badge @(online.Contains(member.UserId) ? "bg-success" : "bg-secondary")">&nbsp;</span>
+                        @member.UserName
+                    </li>
+                }
+            </ul>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid RoomId { get; set; }
+
+    private const int PageSize = 30;
+
+    private readonly List<MessageResponse> messages = new();
+    private List<RoomMemberResponse> members = new();
+    private readonly HashSet<string> online = new();
+    private readonly Dictionary<string, string> typingUsers = new();
+    private readonly Dictionary<string, CancellationTokenSource> typingTimers = new();
+
+    private HubConnection? hub;
+    private ElementReference scrollContainer;
+    private IJSObjectReference? module;
+    private DotNetObjectReference<Chat>? selfRef;
+
+    private string draft = "";
+    private string? myUserId;
+    private DateTimeOffset lastTypingSent;
+    private bool notMember;
+    private bool loadingOlder;
+    private bool hasMore = true;
+    private bool scrollToBottomPending;
+    private double? restorePrevHeight;
+
+    private string TypingText => typingUsers.Count switch
+    {
+        0 => "",
+        1 => $"{typingUsers.Values.First()} печатает…",
+        _ => $"{string.Join(", ", typingUsers.Values)} печатают…"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        myUserId = (await AuthState.GetAuthenticationStateAsync())
+            .User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        var loaded = await Api.GetMembersAsync(RoomId);
+        if (loaded is null)
+        {
+            notMember = true;
+            return;
+        }
+        members = loaded.ToList();
+
+        var history = await Api.GetMessagesAsync(RoomId, take: PageSize);
+        if (history is not null)
+        {
+            messages.AddRange(history);
+            hasMore = history.Count == PageSize;
+            scrollToBottomPending = true;
+        }
+
+        await ConnectHubAsync();
+    }
+
+    private async Task ConnectHubAsync()
+    {
+        var apiBase = Config["ApiBaseAddress"]!;
+        hub = new HubConnectionBuilder()
+            .WithUrl($"{apiBase}/hubs/chat", options =>
+                options.AccessTokenProvider = () => AuthState.GetTokenAsync())
+            .WithAutomaticReconnect()
+            .Build();
+
+        hub.On<MessageResponse>("ReceiveMessage", async message =>
+        {
+            messages.Add(message);
+            scrollToBottomPending = true;
+            await InvokeAsync(StateHasChanged);
+        });
+
+        hub.On<UserTypingNotification>("UserTyping", OnUserTyping);
+
+        hub.On<PresenceNotification>("PresenceChanged", async presence =>
+        {
+            if (presence.IsOnline) online.Add(presence.UserId);
+            else online.Remove(presence.UserId);
+            await InvokeAsync(StateHasChanged);
+        });
+
+        await hub.StartAsync();
+        await hub.SendAsync("JoinRoom", RoomId);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !notMember)
+        {
+            module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/chat.js");
+            selfRef = DotNetObjectReference.Create(this);
+            await module.InvokeVoidAsync("initScroll", scrollContainer, selfRef);
+        }
+
+        if (module is null) return;
+
+        if (scrollToBottomPending)
+        {
+            scrollToBottomPending = false;
+            await module.InvokeVoidAsync("scrollToBottom", scrollContainer);
+        }
+        else if (restorePrevHeight is { } prev)
+        {
+            restorePrevHeight = null;
+            await module.InvokeVoidAsync("restoreScroll", scrollContainer, prev);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnScrolledToTop()
+    {
+        if (loadingOlder || !hasMore || messages.Count == 0) return;
+
+        loadingOlder = true;
+        await InvokeAsync(StateHasChanged);
+
+        restorePrevHeight = await module!.InvokeAsync<double>("getScrollHeight", scrollContainer);
+        var older = await Api.GetMessagesAsync(RoomId, before: messages[0].Id, take: PageSize);
+        if (older is { Count: > 0 })
+        {
+            messages.InsertRange(0, older);
+            hasMore = older.Count == PageSize;
+        }
+        else
+        {
+            hasMore = false;
+            restorePrevHeight = null;
+        }
+
+        loadingOlder = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        draft = e.Value?.ToString() ?? "";
+
+        // Debounce: шлём Typing не чаще раза в секунду, пока пользователь печатает.
+        var now = DateTimeOffset.UtcNow;
+        if (hub is not null && now - lastTypingSent > TimeSpan.FromSeconds(1))
+        {
+            lastTypingSent = now;
+            await hub.SendAsync("Typing", RoomId);
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        var text = draft.Trim();
+        if (text.Length == 0 || hub is null) return;
+
+        draft = "";
+        await hub.SendAsync("SendMessage", RoomId, text);
+    }
+
+    private async Task OnUserTyping(UserTypingNotification notification)
+    {
+        if (notification.UserId == myUserId) return;
+
+        typingUsers[notification.UserId] = notification.UserName;
+
+        // Сбрасываем прошлый таймер этого пользователя и заводим новый на 3с.
+        if (typingTimers.TryGetValue(notification.UserId, out var previous))
+        {
+            previous.Cancel();
+            previous.Dispose();
+        }
+        var cts = new CancellationTokenSource();
+        typingTimers[notification.UserId] = cts;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), cts.Token);
+            typingUsers.Remove(notification.UserId);
+            typingTimers.Remove(notification.UserId);
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (TaskCanceledException)
+        {
+            // Пришло новое событие — таймер перезапущен, ничего не делаем.
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var cts in typingTimers.Values)
+        {
+            cts.Cancel();
+            cts.Dispose();
+        }
+
+        if (hub is not null)
+        {
+            try
+            {
+                await hub.SendAsync("LeaveRoom", RoomId);
+            }
+            catch
+            {
+                // Соединение уже могло закрыться — не мешаем очистке.
+            }
+            await hub.DisposeAsync();
+        }
+
+        if (module is not null)
+        {
+            try
+            {
+                await module.InvokeVoidAsync("dispose", scrollContainer);
+                await module.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // Страница уже выгружается — JS недоступен.
+            }
+        }
+
+        selfRef?.Dispose();
+    }
+}
