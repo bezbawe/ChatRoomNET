@@ -54,6 +54,44 @@ public class RoomEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task GetPublicRooms_ListsOtherUsersPublicRooms_ExcludingPrivate()
+    {
+        var alice = await CreateAuthenticatedClientAsync("alice");
+        var bob = await CreateAuthenticatedClientAsync("bob");
+
+        var createdPublic = await alice.PostAsJsonAsync("/api/rooms", new CreateRoomRequest("Public", false));
+        var publicRoom = await createdPublic.Content.ReadFromJsonAsync<RoomResponse>();
+        await alice.PostAsJsonAsync("/api/rooms", new CreateRoomRequest("Secret", true));
+
+        var discoverable = await bob.GetFromJsonAsync<RoomResponse[]>("/api/rooms/public");
+
+        Assert.NotNull(discoverable);
+        Assert.Contains(discoverable!, r => r.Id == publicRoom!.Id);
+        Assert.DoesNotContain(discoverable!, r => r.Name == "Secret");
+    }
+
+    [Fact]
+    public async Task GetPublicRooms_ExcludesRoomsUserAlreadyMemberOf()
+    {
+        var alice = await CreateAuthenticatedClientAsync("alice");
+        var bob = await CreateAuthenticatedClientAsync("bob");
+
+        var created = await alice.PostAsJsonAsync("/api/rooms", new CreateRoomRequest("Public", false));
+        var room = await created.Content.ReadFromJsonAsync<RoomResponse>();
+
+        // Владелец состоит в комнате — в витрине её не видит; посторонний видит.
+        var aliceView = await alice.GetFromJsonAsync<RoomResponse[]>("/api/rooms/public");
+        Assert.DoesNotContain(aliceView!, r => r.Id == room!.Id);
+        var beforeJoin = await bob.GetFromJsonAsync<RoomResponse[]>("/api/rooms/public");
+        Assert.Contains(beforeJoin!, r => r.Id == room!.Id);
+
+        await bob.PostAsJsonAsync("/api/rooms/join", new JoinRoomRequest(room!.Id, null));
+
+        var afterJoin = await bob.GetFromJsonAsync<RoomResponse[]>("/api/rooms/public");
+        Assert.DoesNotContain(afterJoin!, r => r.Id == room!.Id);
+    }
+
+    [Fact]
     public async Task Join_WithInviteCode_AddsMembership()
     {
         var alice = await CreateAuthenticatedClientAsync("alice");

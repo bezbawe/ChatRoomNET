@@ -9,6 +9,7 @@ public interface IRoomService
 {
     Task<RoomResponse> CreateAsync(string ownerId, CreateRoomRequest request);
     Task<IReadOnlyList<RoomResponse>> GetMyRoomsAsync(string userId);
+    Task<IReadOnlyList<RoomResponse>> GetPublicRoomsAsync(string userId);
     Task<RoomResponse?> JoinAsync(string userId, JoinRoomRequest request);
     Task<IReadOnlyList<RoomMemberResponse>?> GetMembersAsync(Guid roomId, string userId);
     Task<bool> IsMemberAsync(Guid roomId, string userId);
@@ -43,6 +44,17 @@ public class RoomService(ChatDbContext db) : IRoomService
             .OrderByDescending(m => m.Room.CreatedAt)
             .Select(m => new RoomResponse(
                 m.Room.Id, m.Room.Name, m.Room.IsPrivate, m.Room.InviteCode, m.Room.CreatedAt, m.Room.OwnerId))
+            .ToListAsync();
+    }
+
+    // Публичные комнаты, в которых пользователь ещё не состоит — для витрины «вступить».
+    // Инвайт-код не отдаём: в публичную вступают по id, а код — деталь комнат, куда ты не входишь.
+    public async Task<IReadOnlyList<RoomResponse>> GetPublicRoomsAsync(string userId)
+    {
+        return await db.Rooms
+            .Where(r => !r.IsPrivate && r.Members.All(m => m.UserId != userId))
+            .OrderByDescending(r => r.CreatedAt)
+            .Select(r => new RoomResponse(r.Id, r.Name, r.IsPrivate, null, r.CreatedAt, r.OwnerId))
             .ToListAsync();
     }
 

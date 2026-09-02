@@ -19,6 +19,9 @@ public static class RoomEndpoints
         group.MapGet("/", async (ClaimsPrincipal user, IRoomService rooms) =>
             Results.Ok(await rooms.GetMyRoomsAsync(GetUserId(user))));
 
+        group.MapGet("/public", async (ClaimsPrincipal user, IRoomService rooms) =>
+            Results.Ok(await rooms.GetPublicRoomsAsync(GetUserId(user))));
+
         group.MapPost("/join", async (JoinRoomRequest request, ClaimsPrincipal user, IRoomService rooms) =>
         {
             var room = await rooms.JoinAsync(GetUserId(user), request);

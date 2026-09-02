@@ -34,6 +34,10 @@ public class ChatApiClient(HttpClient http)
     public async Task<IReadOnlyList<RoomResponse>> GetRoomsAsync() =>
         await http.GetFromJsonAsync<IReadOnlyList<RoomResponse>>("api/rooms") ?? [];
 
+    // Публичные комнаты, в которые пользователь ещё не вступил.
+    public async Task<IReadOnlyList<RoomResponse>> GetPublicRoomsAsync() =>
+        await http.GetFromJsonAsync<IReadOnlyList<RoomResponse>>("api/rooms/public") ?? [];
+
     public async Task<RoomResponse?> CreateRoomAsync(CreateRoomRequest request)
     {
         var response = await http.PostAsJsonAsync("api/rooms", request);

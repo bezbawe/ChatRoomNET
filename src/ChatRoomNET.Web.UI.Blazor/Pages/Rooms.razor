@@ -43,6 +43,30 @@
                 }
             </ul>
         }
+
+        <h5 class="mt-4">Публичные комнаты</h5>
+        @if (publicRooms is null)
+        {
+            <p>Загрузка…</p>
+        }
+        else if (publicRooms.Count == 0)
+        {
+            <p class="text-muted">Нет доступных публичных комнат.</p>
+        }
+        else
+        {
+            <ul class="list-group">
+                @foreach (var room in publicRooms)
+                {
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <span>@room.Name</span>
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => JoinPublicAsync(room.Id)">
+                            Вступить
+                        </button>
+                    </li>
+                }
+            </ul>
+        }
     </div>
 
     <div class="col-md-5">
@@ -81,13 +105,27 @@
 
 @code {
     private IReadOnlyList<RoomResponse>? rooms;
+    private IReadOnlyList<RoomResponse>? publicRooms;
     private readonly CreateModel createModel = new();
     private readonly JoinModel joinModel = new();
     private string? joinError;
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
-    private async Task LoadAsync() => rooms = await Api.GetRoomsAsync();
+    private async Task LoadAsync()
+    {
+        rooms = await Api.GetRoomsAsync();
+        publicRooms = await Api.GetPublicRoomsAsync();
+    }
+
+    private async Task JoinPublicAsync(Guid roomId)
+    {
+        var room = await Api.JoinRoomAsync(new JoinRoomRequest(roomId, null));
+        if (room is not null)
+        {
+            Navigation.NavigateTo($"rooms/{room.Id}");
+        }
+    }
 
     private async Task CreateAsync()
     {
